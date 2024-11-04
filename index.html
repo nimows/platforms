@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Platform Prediction Game</title>
+    <style>
+        body { margin: 0; }
+        #prediction {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 10px;
+            font-family: Arial;
+            z-index: 1000;
+        }
+        #stats {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 15px;
+            font-family: Arial;
+            border-radius: 5px;
+        }
+        .platform-count {
+            margin: 5px 0;
+            font-size: 16px;
+        }
+        .platform-1 { color: #ff4444; }
+        .platform-2 { color: #44ff44; }
+        .platform-3 { color: #4444ff; }
+        #result {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #000;
+            color: gold;
+            padding: 20px;
+            display: none;
+            text-align: center;
+            border: 2px solid gold;
+            border-radius: 10px;
+            font-family: Arial;
+            font-size: 24px;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            border: none;
+            background: #4CAF50;
+            color: white;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .prediction-text {
+            margin: 10px 0;
+            font-size: 20px;
+        }
+        .result-detail {
+            margin: 10px 0;
+            font-size: 18px;
+        }
+        .correct { color: #4CAF50; }
+        .wrong { color: #ff4444; }
+    </style>
+</head>
+<body>
+    <div id="prediction">
+        <div class="prediction-text">Which platform will collect the most cubes?</div>
+        <button onclick="makePrediction(1)">Platform 1</button>
+        <button onclick="makePrediction(2)">Platform 2</button>
+        <button onclick="makePrediction(3)">Platform 3</button>
+    </div>
+    <div id="stats">
+        <div class="platform-count platform-1">Platform 1: <span id="count1">0</span> cubes</div>
+        <div class="platform-count platform-2">Platform 2: <span id="count2">0</span> cubes</div>
+        <div class="platform-count platform-3">Platform 3: <span id="count3">0</span> cubes</div>
+        <div class="platform-count" style="margin-top: 10px; color: #ff8888;">Fallen: <span id="fallen">0</span></div>
+    </div>
+    <div id="result">
+        <div id="winner-text"></div>
+        <div id="prediction-text"></div>
+        <div id="accuracy-text"></div>
+        <button onclick="resetGame()">Play Again</button>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <script>
+        let gameStarted = false;
+        let userPrediction = null;
+        let gameEnded = false;
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Physics world
+        const world = new CANNON.World();
+        world.gravity.set(0, -9.82, 0);
+
+        // Variables
+        const platformCounts = [0, 0, 0];
+        let fallenCubes = 0;
+        let stabilityCounter = 0;
+        const platforms = [];
+        const cubes = [];
+        const cubeBodies = [];
+
+        function updatePlatformCounts() {
+            for (let i = 0; i < 3; i++) {
+                document.getElementById(`count${i+1}`).textContent = platformCounts[i];
+            }
+        }
+
+        function makePrediction(platform) {
+            userPrediction = platform;
+            document.getElementById('prediction').style.display = 'none';
+            startGame();
+        }
+
+        function startGame() {
+            gameStarted = true;
+            // Create initial cubes
+            for (let i = 0; i < 30; i++) {
+                createCube();
+            }
+        }
+
+        function resetGame() {
+            location.reload();
+        }
+
+        // Platform colors matching the UI
+        const platformColors = [0xff4444, 0x44ff44, 0x4444ff];
+
+        // Create platforms
+        for (let i = 0; i < 3; i++) {
+            const platform = new THREE.Mesh(
+                new THREE.BoxGeometry(2, 0.2, 2),
+                new THREE.MeshPhongMaterial({ color: platformColors[i] })
+            );
+            platform.position.set(i * 3 - 3, -2, 0);
+            scene.add(platform);
+            platforms.push(platform);
+
+            // Platform physics
+            const platformBody = new CANNON.Body({ mass: 0 });
+            platformBody.addShape(new CANNON.Box(new CANNON.Vec3(1, 0.1, 1)));
+            platformBody.position.copy(platform.position);
+            platformBody.platformIndex = i;
+            world.addBody(platformBody);
+        }
+
+        // Create cubes
+        function createCube() {
+            const size = 0.4;
+            const cube = new THREE.Mesh(
+                new THREE.BoxGeometry(size, size, size),
+                new THREE.MeshPhongMaterial({ color: Math.random() * 0xffffff })
+            );
+            scene.add(cube);
+            cubes.push(cube);
+
+            const cubeBody = new CANNON.Body({ mass: 1 });
+            cubeBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2, size/2, size/2)));
+            cubeBody.position.set(
+                (Math.random() - 0.5) * 6,
+                5,
+                (Math.random() - 0.5) * 2
+            );
+            world.addBody(cubeBody);
+            cubeBodies.push(cubeBody);
+
+            cubeBody.addEventListener('collide', (e) => {
+                const platformBody = e.contact.bj.platformIndex !== undefined ? e.contact.bj : e.contact.bi;
+                if (platformBody.platformIndex !== undefined) {
+                    platformCounts[platformBody.platformIndex]++;
+                    updatePlatformCounts();
+                }
+            });
+        }
+
+        // Lighting
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(10, 10, 10);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+
+        camera.position.set(0, 0, 10);
+
+        function showResult(winningPlatform) {
+            if (gameEnded) return;
+            gameEnded = true;
+
+            const resultDiv = document.getElementById('result');
+            const winnerText = document.getElementById('winner-text');
+            const predictionText = document.getElementById('prediction-text');
+            const accuracyText = document.getElementById('accuracy-text');
+
+            winnerText.innerHTML = `Platform ${winningPlatform} won with ${platformCounts[winningPlatform-1]} cubes!`;
+            predictionText.innerHTML = `Your prediction: Platform ${userPrediction}`;
+
+            if (winningPlatform === userPrediction) {
+                accuracyText.innerHTML = '<span class="correct">✓ Your prediction was correct!</span>';
+            } else {
+                accuracyText.innerHTML = '<span class="wrong">✗ Your prediction was incorrect</span>';
+            }
+
+            resultDiv.style.display = 'block';
+        }
+
+        // Check for winner
+        function checkForWinner() {
+            let stable = true;
+            for (const body of cubeBodies) {
+                if (body.velocity.lengthSquared() > 0.1) {
+                    stable = false;
+                    break;
+                }
+            }
+
+            if (stable) {
+                stabilityCounter++;
+                if (stabilityCounter > 100) { // About 2 seconds of stability
+                    const winningPlatform = platformCounts.indexOf(Math.max(...platformCounts)) + 1;
+                    showResult(winningPlatform);
+                }
+            } else {
+                stabilityCounter = 0;
+            }
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameStarted) {
+                world.step(1/60);
+
+                // Reset platform counts periodically for accuracy
+                platformCounts.fill(0);
+                
+                // Update cube positions and count cubes on platforms
+                for (let i = cubeBodies.length - 1; i >= 0; i--) {
+                    cubes[i].position.copy(cubeBodies[i].position);
+                    cubes[i].quaternion.copy(cubeBodies[i].quaternion);
+
+                    // Count cubes on platforms
+                    const x = cubeBodies[i].position.x;
+                    const y = cubeBodies[i].position.y;
+                    if (y > -2.5 && y < -1.5) { // Height range for platforms
+                        const platformIndex = Math.floor((x + 4.5) / 3);
+                        if (platformIndex >= 0 && platformIndex < 3) {
+                            platformCounts[platformIndex]++;
+                        }
+                    }
+
+                    // Remove fallen cubes
+                    if (cubeBodies[i].position.y < -5) {
+                        scene.remove(cubes[i]);
+                        world.remove(cubeBodies[i]);
+                        cubes.splice(i, 1);
+                        cubeBodies.splice(i, 1);
+                        fallenCubes++;
+                        document.getElementById('fallen').textContent = fallenCubes;
+                        createCube();
+                    }
+                }
+
+                updatePlatformCounts();
+                checkForWinner();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resizing
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
